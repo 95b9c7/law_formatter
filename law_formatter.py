@@ -12,18 +12,19 @@ def resource_path(relative_name):
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_name)
  
  
-def format_case(input_path):
+def format_case(input_path, output_path):
     with open(input_path, "r", encoding="utf-8") as f:
         text = f.read()
- 
+
     # Join all lines into one block
     text = text.replace("\n", " ")
- 
+
     # Collapse multiple spaces into one
     text = re.sub(r' {2,}', ' ', text)
- 
+
     # Replace "United States" with "US"
     text = re.sub(r'\bUnited States\b', 'US', text)
+
  
     # ── Protect tokens that must NOT trigger a sentence break ──────────────────
     # Longer/more-specific patterns must come first
@@ -125,12 +126,28 @@ def format_case(input_path):
     text = re.sub(r'\.(\s+)(?=[A-Z])', lambda m: '.' + SEP, text)
  
     # ── Split and restore ──────────────────────────────────────────────────────
+    for token, placeholder in protections:
+        text = text.replace(token, placeholder)
+
+    text = re.sub(r'(?<= )([A-Z])\. ', lambda m: m.group(1) + '_LETTER_PROTECT ', text)
+
+    text = text.replace(". . . .", "ELLIPSIS4")
+    text = text.replace(". . .",   "ELLIPSIS3")
+    text = text.replace("...",     "ELLIPSIS3")
+    text = text.replace("…",       "ELLIPSIS_U")
+
+    SEP = "\x00SPLIT\x00"
+
+    pattern = r'(\)\.|\.\"|\.\)|[?;]|ELLIPSIS4|ELLIPSIS3|ELLIPSIS_U)(\s+)(?=[A-Z\[\d])'
+    text = re.sub(pattern, lambda m: m.group(1) + SEP, text)
+
+    text = re.sub(r'\.(\s+)(?=[A-Z])', lambda m: '.' + SEP, text)
+
     sentences_raw = text.split(SEP)
     restored = []
     for s in sentences_raw:
         for token, placeholder in protections:
             s = s.replace(placeholder, token)
-        # Restore single-letter protections
         s = re.sub(r'([A-Z])_LETTER_PROTECT', r'\1.', s)
         s = s.replace("ELLIPSIS4", ". . . .")
         s = s.replace("ELLIPSIS3", "...")
@@ -140,14 +157,10 @@ def format_case(input_path):
             restored.append(s)
  
     # ── Write output ───────────────────────────────────────────────────────────
-    desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-    filename = os.path.splitext(os.path.basename(input_path))[0] + "_formatted.txt"
-    output_path = os.path.join(desktop, filename)
- 
     with open(output_path, "w", encoding="utf-8") as f:
         for s in restored:
             f.write(s + "\n")
- 
+
     return output_path, len(restored)
  
  
@@ -238,17 +251,29 @@ def show_success_dialog(parent, sentence_count, output_path):
 def select_and_run():
     root = tk.Tk()
     root.withdraw()
- 
+
     input_path = filedialog.askopenfilename(
         title="Select a law case .txt file",
         filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
     )
- 
+
     if not input_path:
         return
- 
+
+    default_name = os.path.splitext(os.path.basename(input_path))[0] + "_formatted.txt"
+
+    output_path = filedialog.asksaveasfilename(
+        title="Choose where to save the formatted file",
+        defaultextension=".txt",
+        initialfile=default_name,
+        filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+    )
+
+    if not output_path:
+        return
+
     try:
-        output_path, sentence_count = format_case(input_path)
+        output_path, sentence_count = format_case(input_path, output_path)
         show_success_dialog(root, sentence_count, output_path)
     except Exception as e:
         messagebox.showerror("Error", f"Something went wrong:\n{str(e)}")
